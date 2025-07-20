@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "528993142294",
+    "project_id": "voip-antonyshane",
+    "storage_bucket": "voip-antonyshane.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:528993142294:android:1608efd8a2efee75de9737",
+        "android_client_info": {
+          "package_name": "com.example.voip"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAXHyvEcW4np2-kVq8UnChN7FopWwV0Tgc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
