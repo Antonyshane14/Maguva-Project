@@ -1,13 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'dart:async';
+
 import 'screens/home_screen.dart';
 import 'screens/analysis_result_screen.dart';
-import 'dart:async';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'voip_service.dart';
-
-// NOTE: The 'VoIPService' and screen imports ('home_screen.dart', etc.)
-// are assumed to exist elsewhere in your project.
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -17,10 +15,7 @@ void main() async {
   } catch (e) {
     runApp(MaterialApp(
       home: Scaffold(
-        body: Center(
-          // BUG FIX: Used '$e' for correct string interpolation.
-          child: Text('Firebase init error: $e'),
-        ),
+        body: Center(child: Text('Firebase init error: $e')),
       ),
     ));
   }
@@ -40,21 +35,20 @@ class _MyAppState extends State<MyApp> {
   }
 
   void _initializeVoIP() {
-    // LOGIC FIX: Assign the handler BEFORE starting the listener to prevent a race condition.
+    // Assign the handler BEFORE starting the listener to prevent a race condition.
     VoIPService().onIncomingCall = (callId) async {
       final navigator = navigatorKey.currentState;
       if (navigator == null) return;
 
       String peerId = 'Unknown Caller'; // Default value in case of an error
-
       try {
         final doc = await FirebaseFirestore.instance.collection('calls').doc(callId).get();
         final data = doc.data();
         if (data != null && data['callerId'] != null) {
+          // In a real app, you might want to fetch the peer's name from a 'users' collection
           peerId = data['callerId'];
         }
       } catch (e) {
-        // BUG FIX: Used '$e' for correct string interpolation.
         debugPrint('Failed to fetch peerId: $e');
         // The call will still be shown, but with 'Unknown Caller'.
       }
@@ -70,9 +64,8 @@ class _MyAppState extends State<MyApp> {
             TextButton(
               onPressed: () {
                 VoIPService().acceptIncomingCall(callId);
-                // Pop the dialog before pushing the new screen
-                navigator.pop();
-                navigator.push( // Use push instead of pushReplacement to keep home screen in stack
+                navigator.pop(); // Pop the dialog before pushing the new screen
+                navigator.push( // Use push to navigate to the call screen
                   MaterialPageRoute(
                     builder: (_) => CallScreen(
                       callId: callId,
@@ -132,19 +125,15 @@ class _MyAppState extends State<MyApp> {
       ),
       routes: {
         '/home': (context) => const HomeScreen(),
-        // Note: The '/call' and '/analysis' routes use hardcoded data for testing.
-        '/call': (context) => CallScreen(
-          callId: 'demo',
-          isCaller: true,
-          peerId: 'peer_user_id',
-        ),
+        // Note: The '/analysis' route uses hardcoded data.
         '/analysis': (context) => AnalysisResultScreen(
-          result: {
-            'summary': 'No scam detected. Call is safe.',
+          result: const {
+            'summary': 'This is a sample analysis result.',
             'details': [
-              {'label': 'Risk Score', 'value': 'Low'},
-              {'label': 'Impersonation Likelihood', 'value': 'Minimal'},
-              {'label': 'Highlighted Phrases', 'value': 'None'},
+              {'label': 'Risk Score', 'value': 'High'},
+              {'label': 'Urgency Detected', 'value': 'Yes'},
+              {'label': 'Impersonation Likelihood', 'value': 'Moderate'},
+              {'label': 'Highlighted Phrases', 'value': '"account suspended", "immediate action required"'},
             ],
           },
         ),
@@ -168,29 +157,20 @@ class CallScreen extends StatefulWidget {
   });
 
   @override
-  _CallScreenState createState() => _CallScreenState();
+  State<CallScreen> createState() => _CallScreenState();
 }
 
 class _CallScreenState extends State<CallScreen> {
-  int _seconds = 0;
   Timer? _timer;
+  int _seconds = 0;
   bool _micMuted = false;
-  bool _speakerOn = true;
+  bool _speakerOn = false; // Default to earpiece
 
   @override
   void initState() {
     super.initState();
+    // Start the timer now, as this screen represents an active call
     _startTimer();
-  }
-
-  void _startTimer() {
-    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (mounted) {
-        setState(() {
-          _seconds++;
-        });
-      }
-    });
   }
 
   @override
@@ -199,27 +179,31 @@ class _CallScreenState extends State<CallScreen> {
     super.dispose();
   }
 
-  void _toggleMute() {
-    setState(() {
-      _micMuted = !_micMuted;
+  void _startTimer() {
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (mounted) {
+        setState(() => _seconds++);
+      }
     });
+  }
+
+  void _toggleMute() {
+    setState(() => _micMuted = !_micMuted);
     VoIPService().toggleMicrophone();
   }
 
   void _toggleSpeaker() {
-    setState(() {
-      _speakerOn = !_speakerOn;
-    });
+    setState(() => _speakerOn = !_speakerOn);
     VoIPService().toggleSpeaker(_speakerOn);
   }
 
   void _hangUp() {
     VoIPService().endCall();
-    if (Navigator.canPop(context)) {
-      Navigator.pop(context);
+    if(mounted) {
+        Navigator.of(context).pop();
     }
   }
-  
+
   String get _formattedDuration {
     final int minutes = _seconds ~/ 60;
     final int seconds = _seconds % 60;
@@ -231,7 +215,8 @@ class _CallScreenState extends State<CallScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.isCaller ? 'Calling...' : 'In Call with ${widget.peerId}'),
+        title: Text(widget.isCaller ? 'Calling ${widget.peerId}' : 'In Call with ${widget.peerId}'),
+        centerTitle: true,
         automaticallyImplyLeading: false,
       ),
       body: SafeArea(
@@ -241,6 +226,7 @@ class _CallScreenState extends State<CallScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
+              // Caller Info Display
               Column(
                 children: [
                    const SizedBox(height: 60),
@@ -257,20 +243,25 @@ class _CallScreenState extends State<CallScreen> {
                    ),
                 ],
               ),
+
+              // Call Controls
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
                   _buildControlButton(
+                    heroTag: 'speaker_button',
+                    onPressed: _toggleSpeaker,
+                    icon: _speakerOn ? Icons.volume_up : Icons.volume_down,
+                    backgroundColor: Colors.blueGrey,
+                  ),
+                  _buildControlButton(
+                    heroTag: 'mute_button',
                     onPressed: _toggleMute,
                     icon: _micMuted ? Icons.mic_off : Icons.mic,
                     backgroundColor: _micMuted ? Colors.red : Colors.blueGrey,
                   ),
                   _buildControlButton(
-                    onPressed: _toggleSpeaker,
-                    icon: _speakerOn ? Icons.volume_up : Icons.volume_off,
-                    backgroundColor: _speakerOn ? Colors.blueGrey : Colors.red,
-                  ),
-                   _buildControlButton(
+                    heroTag: 'hangup_button',
                     onPressed: _hangUp,
                     icon: Icons.call_end,
                     backgroundColor: Colors.red,
@@ -285,11 +276,13 @@ class _CallScreenState extends State<CallScreen> {
   }
   
   Widget _buildControlButton({
+    required String heroTag,
     required VoidCallback onPressed,
     required IconData icon,
     required Color backgroundColor,
   }) {
     return FloatingActionButton(
+      heroTag: heroTag,
       onPressed: onPressed,
       backgroundColor: backgroundColor,
       child: Icon(icon, color: Colors.white, size: 30),

@@ -17,13 +17,13 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     // This method needs to be added to your service
-    VoIPService().setOnlineStatus(online: true);
+    // VoIPService().setOnlineStatus(online: true); // Method removed
     // FIX: Removed redundant call. This is handled in main.dart's initialization.
   }
 
   @override
   void dispose() {
-    VoIPService().setOnlineStatus(online: false);
+    // VoIPService().setOnlineStatus(online: false); // Method removed
     _dialerController.dispose();
     super.dispose();
   }

@@ -1,163 +1,161 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_webrtc/flutter_webrtc.dart'; // Import WebRTC
 import '../voip_service.dart';
-
 
 class CallScreen extends StatefulWidget {
   final String callId;
   final bool isCaller;
-  final String peerId; // This is the user ID entered in dialer
+  final String peerId;
+
   const CallScreen({super.key, required this.callId, required this.isCaller, required this.peerId});
   @override
   State<CallScreen> createState() => _CallScreenState();
 }
 
 class _CallScreenState extends State<CallScreen> {
-  bool _micMuted = false;
-  int _seconds = 0;
-  bool? _isCaller;
-  String? _callId;
-  String? _peerId;
-  String _callStatus = 'connecting'; // connecting, ringing, in-call, ended
-  var _timer;
-  VoIPService? _voip;
+  final VoIPService _voip = VoIPService();
+  final RTCVideoRenderer _remoteRenderer = RTCVideoRenderer(); // For audio playback
 
+  StreamSubscription? _callStatusSubscription;
+  String _callStatus = 'Ringing...'; // Default status
+  Timer? _timer;
+  int _seconds = 0;
+  bool _micMuted = false;
 
   @override
   void initState() {
     super.initState();
-    // _userId removed (unused)
-    _isCaller = widget.isCaller;
-    _callId = widget.callId;
-    _peerId = widget.peerId;
-    _voip = VoIPService();
-    _startTimer();
-    // Do NOT start call automatically. Caller must press button.
-  }
+    _remoteRenderer.initialize();
 
-  void _toggleMute() {
-    setState(() {
-      _micMuted = !_micMuted;
-    });
-    _voip?.toggleMicrophone();
-  }
+    // Listen to the remote stream from the service
+    _voip.remoteStreamNotifier.addListener(_onRemoteStream);
 
-  void _endCall() async {
-    if (_callId != null) {
-      await _voip?.endCall();
-    }
-    setState(() {
-      _callStatus = 'ended';
-    });
-    _timer?.cancel();
-    Future.delayed(const Duration(seconds: 2), () => Navigator.pop(context));
-  }
-
-  String _formatTime(int seconds) {
-    final minutes = seconds ~/ 60;
-    final secs = seconds % 60;
-    return '${minutes.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}';
-  }
-
-  void _startTimer() {
-    _timer = Stream.periodic(const Duration(seconds: 1), (i) => i).listen((i) {
+    // Listen to call status changes from the service
+    _callStatusSubscription = _voip.callStatusStream.listen((status) {
+      if (!mounted) return;
       setState(() {
-        _seconds++;
+        if (status == 'connected') {
+          _callStatus = 'In Call';
+          _startTimer(); // Start timer only when connected
+        } else if (status == 'ringing') {
+          _callStatus = 'Ringing...';
+        }
       });
+      if (status == 'ended' || status == 'rejected') {
+        _hangUpAndPop();
+      }
     });
   }
 
-
-  Future<void> _initCall() async {
-    if (_isCaller == true) {
-      setState(() { _callStatus = 'ringing'; });
-      await _voip?.startCall(_peerId!);
-      // After starting the call, get the callId from VoIPService
+  void _onRemoteStream() {
+    if (mounted) {
       setState(() {
-        _callId = _voip?.callId;
-        _callStatus = 'in-call';
+        _remoteRenderer.srcObject = _voip.remoteStreamNotifier.value;
       });
-    } else {
-      setState(() { _callStatus = 'ringing'; });
-      _voip?.listenForIncomingCalls();
-      // Accept/reject handled by buttons below
     }
   }
 
   @override
+  void dispose() {
+    _timer?.cancel();
+    _callStatusSubscription?.cancel();
+    _remoteRenderer.dispose();
+    _voip.remoteStreamNotifier.removeListener(_onRemoteStream);
+    super.dispose();
+  }
+
+  void _startTimer() {
+    _timer?.cancel(); // Ensure no multiple timers
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (mounted) setState(() => _seconds++);
+    });
+  }
+
+  void _toggleMute() {
+    setState(() => _micMuted = !_micMuted);
+    _voip.toggleMicrophone();
+  }
+
+  void _hangUpAndPop() {
+    _timer?.cancel();
+    // No need to call _voip.endCall() here if the event came from the stream
+    if(mounted && Navigator.canPop(context)) {
+      Navigator.of(context).pop();
+    }
+  }
+
+  // The rest of the UI build method remains similar, but now driven by the new state
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Call')),
-      body: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(_isCaller == true ? 'Calling $_peerId...' : 'Incoming call from $_peerId', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 16),
-            Text('Status: $_callStatus', style: const TextStyle(fontSize: 16)),
-            const SizedBox(height: 16),
-            if (_isCaller == true && _callStatus == 'connecting')
-              ElevatedButton.icon(
-                icon: const Icon(Icons.call),
-                label: const Text('Start Call'),
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-                onPressed: () async {
-                  await _initCall();
-                },
-              ),
-            if (_callStatus == 'in-call')
-              Text(_formatTime(_seconds), style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold)),
-            if (_callStatus == 'ended')
-              Text('Call ended', style: const TextStyle(fontSize: 22, color: Colors.red)),
-            const SizedBox(height: 32),
-            if (_callStatus == 'ringing' && _isCaller == false)
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
+      // --- Hidden renderer for audio playback ---
+      body: Stack(
+        children: [
+          SizedBox.shrink(
+            child: RTCVideoView(_remoteRenderer),
+          ),
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  ElevatedButton.icon(
-                    icon: const Icon(Icons.call),
-                    label: const Text('Accept'),
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-                    onPressed: () async {
-                      await _voip?.acceptIncomingCall(_callId!);
-                      setState(() { _callStatus = 'in-call'; });
-                    },
+                  // Caller Info Display
+                  Column(
+                    children: [
+                      const SizedBox(height: 60),
+                      const Icon(Icons.account_circle, size: 120, color: Colors.grey),
+                      const SizedBox(height: 16),
+                      Text(
+                        widget.peerId,
+                        style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _callStatus,
+                        style: const TextStyle(fontSize: 18, color: Colors.black54),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _formattedDuration,
+                        style: const TextStyle(fontSize: 18, color: Colors.black54),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 24),
-                  ElevatedButton.icon(
-                    icon: const Icon(Icons.call_end),
-                    label: const Text('Reject'),
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-                    onPressed: () async {
-                      await _voip?.rejectIncomingCall(_callId!);
-                      setState(() { _callStatus = 'ended'; });
-                      Future.delayed(const Duration(seconds: 2), () => Navigator.pop(context));
-                    },
+                  // Call Controls
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      // Mute Button
+                      FloatingActionButton(
+                        heroTag: 'mute_button',
+                        onPressed: _toggleMute,
+                        backgroundColor: _micMuted ? Colors.red : Colors.blueGrey,
+                        child: Icon(_micMuted ? Icons.mic_off : Icons.mic, color: Colors.white),
+                      ),
+                      // End Call Button
+                      FloatingActionButton(
+                        heroTag: 'end_call_button',
+                        onPressed: _hangUpAndPop,
+                        backgroundColor: Colors.red,
+                        child: const Icon(Icons.call_end, color: Colors.white),
+                      ),
+                    ],
                   ),
                 ],
               ),
-            if (_callStatus == 'in-call')
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  IconButton(
-                    icon: Icon(_micMuted ? Icons.mic_off : Icons.mic),
-                    onPressed: _toggleMute,
-                    color: _micMuted ? Colors.red : Colors.green,
-                    iconSize: 36,
-                  ),
-                  const SizedBox(width: 32),
-                  IconButton(
-                    icon: const Icon(Icons.call_end),
-                    onPressed: _endCall,
-                    color: Colors.red,
-                    iconSize: 36,
-                  ),
-                ],
-              ),
-          ],
-        ),
+            ),
+          ),
+        ],
       ),
     );
-}
+  }
+
+  String get _formattedDuration {
+    final int minutes = _seconds ~/ 60;
+    final int seconds = _seconds % 60;
+    return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+  }
 }
