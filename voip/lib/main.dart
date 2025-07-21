@@ -3,12 +3,24 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:async';
 
+
 import 'screens/home_screen.dart';
 import 'screens/analysis_result_screen.dart';
 import 'voip_service.dart';
+import 'package:flutter_webrtc/flutter_webrtc.dart'; // <-- Add this import
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // --- FIX: Add this block to disable hardware-specific audio features ---
+  await WebRTC.initialize(
+    options: <String, dynamic>{
+      'androidUseHardwareAcousticEchoCanceler': false,
+      'androidUseHardwareNoiseSuppressor': false,
+    },
+  );
+  // ----------------------------------------------------------------------
+
   try {
     await Firebase.initializeApp();
     runApp(const MyApp());

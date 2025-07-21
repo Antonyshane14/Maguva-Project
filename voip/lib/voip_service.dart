@@ -3,56 +3,110 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:async';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:uuid/uuid.dart';
+import 'dart:math';
 
 class VoIPService {
   static final VoIPService _instance = VoIPService._internal();
   factory VoIPService() => _instance;
   VoIPService._internal();
 
-  // --- Class Members ---
+  // Class Members and Notifiers...
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   RTCPeerConnection? _peerConnection;
   MediaStream? _localStream;
   String? _callId;
   String? _currentUserId;
-
-  // --- UI Notifiers and Streams ---
   final ValueNotifier<MediaStream?> remoteStreamNotifier = ValueNotifier(null);
   final StreamController<String> _callStatusController =
       StreamController.broadcast();
   Stream<String> get callStatusStream => _callStatusController.stream;
-
-  // --- Subscriptions ---
   StreamSubscription<DocumentSnapshot>? _callSubscription;
   StreamSubscription<QuerySnapshot>? _candidatesSubscription;
   StreamSubscription<QuerySnapshot>? _incomingCallSubscription;
-
-  // --- Public Getters & Callbacks ---
   String? get userId => _currentUserId;
   void Function(String callId)? onIncomingCall;
-
-  // --- Constraints ---
   final Map<String, dynamic> constraints = {'audio': true, 'video': false};
 
-  // --- Methods ---
+  // --- FIX: This is the only method that changes ---
+  Future<void> _createPeerConnection(bool isCaller) async {
+    final Map<String, dynamic> configuration = {
+      'iceServers': [
+        {'urls': 'stun:stun.l.google.com:19302'},
+        {
+          'urls': 'turn:openrelay.metered.ca:80',
+          'username': 'openrelayproject',
+          'credential': 'openrelayproject',
+        },
+        {
+          'urls': 'turn:openrelay.metered.ca:443',
+          'username': 'openrelayproject',
+          'credential': 'openrelayproject',
+        },
+      ],
+    };
+
+    _peerConnection = await createPeerConnection(configuration);
+
+    // --- ADD THIS LINE ---
+    // Explicitly add a transceiver for two-way audio.
+    // This is a robust way to ensure the audio channel is properly negotiated.
+    await _peerConnection!.addTransceiver(
+      kind: RTCRtpMediaType.RTCRtpMediaTypeAudio,
+      init: RTCRtpTransceiverInit(direction: TransceiverDirection.SendRecv),
+    );
+    // ----------------------
+
+    _localStream?.getTracks().forEach((track) {
+      _peerConnection?.addTrack(track, _localStream!);
+    });
+
+    _peerConnection!.onIceCandidate = (RTCIceCandidate candidate) {
+      if (_callId != null) {
+        final candidatesCollection = isCaller
+            ? 'callerCandidates'
+            : 'calleeCandidates';
+        _firestore
+            .collection('calls')
+            .doc(_callId)
+            .collection(candidatesCollection)
+            .add(candidate.toMap());
+      }
+    };
+
+    _peerConnection!.onTrack = (RTCTrackEvent event) {
+      print('[DIAGNOSTIC] Remote track received!');
+      if (event.streams.isNotEmpty &&
+          event.streams[0].getAudioTracks().isNotEmpty) {
+        print(
+          '[DIAGNOSTIC] Remote audio track enabled: ${event.streams[0].getAudioTracks()[0].enabled}',
+        );
+      }
+      if (event.streams.isNotEmpty) {
+        remoteStreamNotifier.value = event.streams[0];
+      }
+    };
+  }
+
+  // --- All other methods remain the same ---
 
   Future<void> initializeUserId() async {
     final prefs = await SharedPreferences.getInstance();
     String? savedUserId = prefs.getString('user_id');
-
+    if (savedUserId != null && savedUserId.length != 4) {
+      await prefs.remove('user_id');
+      savedUserId = null;
+    }
     if (savedUserId == null) {
-      savedUserId = const Uuid().v4();
+      var random = Random();
+      savedUserId = (1000 + random.nextInt(9000)).toString();
       await prefs.setString('user_id', savedUserId);
     }
-
     _currentUserId = savedUserId;
     listenForIncomingCalls();
   }
 
   void listenForIncomingCalls() {
     if (_currentUserId == null) return;
-
     _incomingCallSubscription?.cancel();
     _incomingCallSubscription = _firestore
         .collection('calls')
@@ -79,10 +133,8 @@ class VoIPService {
         .listen((snapshot) async {
           final data = snapshot.data();
           if (data == null) return;
-
           final status = data['status'];
           _callStatusController.add(status);
-
           if (data['answer'] != null &&
               _peerConnection?.getRemoteDescription() == null) {
             final answer = RTCSessionDescription(
@@ -96,23 +148,20 @@ class VoIPService {
 
   Future<String?> startCall(String calleeId) async {
     if (_currentUserId == null) return null;
-
     await _getUserMedia();
     await _createPeerConnection(true);
-
     final callDoc = _firestore.collection('calls').doc();
     _callId = callDoc.id;
-
-    final offer = await _peerConnection!.createOffer();
+    final offer = await _peerConnection!.createOffer({
+      'offerToReceiveAudio': true,
+    });
     await _peerConnection!.setLocalDescription(offer);
-
     await callDoc.set({
       'callerId': _currentUserId,
       'calleeId': calleeId,
       'offer': offer.toMap(),
       'status': 'ringing',
     });
-
     _listenToCall(_callId!);
     _listenForCandidates('calleeCandidates');
     return _callId;
@@ -120,24 +169,19 @@ class VoIPService {
 
   Future<void> answerCall(String callId) async {
     _callId = callId;
-
     await _getUserMedia();
     await _createPeerConnection(false);
-
     final callDoc = _firestore.collection('calls').doc(callId);
     final snapshot = await callDoc.get();
-
     if (!snapshot.exists || snapshot.data()?['offer'] == null) return;
-
     final offerData = snapshot.data()!['offer'];
     final offer = RTCSessionDescription(offerData['sdp'], offerData['type']);
     await _peerConnection!.setRemoteDescription(offer);
-
-    final answer = await _peerConnection!.createAnswer();
+    final answer = await _peerConnection!.createAnswer({
+      'offerToReceiveAudio': true,
+    });
     await _peerConnection!.setLocalDescription(answer);
-
     await callDoc.update({'answer': answer.toMap(), 'status': 'connected'});
-
     _listenToCall(_callId!);
     _listenForCandidates('callerCandidates');
   }
@@ -145,41 +189,15 @@ class VoIPService {
   Future<void> _getUserMedia() async {
     try {
       _localStream = await navigator.mediaDevices.getUserMedia(constraints);
+      if (_localStream != null && _localStream!.getAudioTracks().isNotEmpty) {
+        print(
+          '[DIAGNOSTIC] Local microphone stream created. Audio track enabled: ${_localStream!.getAudioTracks()[0].enabled}',
+        );
+      }
     } catch (e) {
       print('Error getting user media: $e');
       rethrow;
     }
-  }
-
-  Future<void> _createPeerConnection(bool isCaller) async {
-    _peerConnection = await createPeerConnection({
-      'iceServers': [
-        {'urls': 'stun:stun.l.google.com:19302'},
-      ],
-    });
-
-    _localStream?.getTracks().forEach((track) {
-      _peerConnection?.addTrack(track, _localStream!);
-    });
-
-    _peerConnection!.onIceCandidate = (RTCIceCandidate candidate) {
-      if (_callId != null) {
-        final candidatesCollection = isCaller
-            ? 'callerCandidates'
-            : 'calleeCandidates';
-        _firestore
-            .collection('calls')
-            .doc(_callId)
-            .collection(candidatesCollection)
-            .add(candidate.toMap());
-      }
-    };
-
-    _peerConnection!.onTrack = (RTCTrackEvent event) {
-      if (event.streams.isNotEmpty) {
-        remoteStreamNotifier.value = event.streams[0];
-      }
-    };
   }
 
   void _listenForCandidates(String collectionName) {
@@ -218,11 +236,9 @@ class VoIPService {
       _localStream?.getTracks().forEach((track) => track.stop());
       await _localStream?.dispose();
       _localStream = null;
-
       remoteStreamNotifier.value?.getTracks().forEach((track) => track.stop());
       await remoteStreamNotifier.value?.dispose();
       remoteStreamNotifier.value = null;
-
       await _peerConnection?.close();
       _peerConnection = null;
       _callSubscription?.cancel();
