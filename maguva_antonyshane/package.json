@@ -1,0 +1,38 @@
+{
+  "name": "boutique-management-system",
+  "version": "1.0.0",
+  "description": "Complete boutique billing and inventory management system",
+  "main": "index.js",
+  "scripts": {
+    "setup": "./setup.sh",
+    "start": "./start.sh",
+    "stop": "./stop.sh",
+    "dev": "concurrently \"npm run backend:dev\" \"npm run frontend:dev\"",
+    "backend:dev": "cd backend && npm run dev",
+    "frontend:dev": "cd frontend && npm start",
+    "backend:start": "cd backend && npm start",
+    "frontend:start": "cd frontend && npm start",
+    "install:all": "npm install && cd backend && npm install && cd ../frontend && npm install",
+    "build": "cd frontend && npm run build",
+    "test": "cd backend && npm test && cd ../frontend && npm test"
+  },
+  "keywords": [
+    "boutique",
+    "pos",
+    "inventory",
+    "billing",
+    "management",
+    "react",
+    "nodejs",
+    "mongodb"
+  ],
+  "author": "Antonyshane14",
+  "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^7.6.0"
+  },
+  "engines": {
+    "node": ">=16.0.0",
+    "npm": ">=8.0.0"
+  }
+}
