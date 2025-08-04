@@ -1,6 +1,6 @@
 const express = require('express');
-const Product = require('../models/Product');
-const { auth, authorize } = require('../middleware/auth');
+const Product = require('../backend/models/Product');
+const { auth, authorize } = require('../backend/middleware/auth');
 const router = express.Router();
 
 // @route   GET /api/products/reports/low-stock
