@@ -15,9 +15,14 @@ import CustomerForm from './pages/Customers/CustomerForm';
 import Orders from './pages/Orders/Orders';
 import POS from './pages/POS/POS';
 import Inventory from './pages/Inventory/Inventory';
+import NewStock from './pages/Inventory/NewStock';
+
 import Reports from './pages/Reports/Reports';
 import Settings from './pages/Settings/Settings';
 import ProtectedRoute from './components/Auth/ProtectedRoute';
+
+import VendorList from './pages/Vendor/VendorList';
+import RegisterVendor from './pages/Vendor/RegisterVendor';
 
 // Create theme
 const theme = createTheme({
@@ -97,6 +102,10 @@ function App() {
                       <Routes>
                         <Route path="/" element={<Navigate to="/dashboard" replace />} />
                         <Route path="/dashboard" element={<Dashboard />} />
+
+                        {/* Vendor Management */}
+                        <Route path="/vendors" element={<VendorList />} />
+                        <Route path="/vendor-register" element={<RegisterVendor />} />
                         
                         {/* Product Management */}
                         <Route path="/products" element={<Products />} />
@@ -114,6 +123,7 @@ function App() {
                         
                         {/* Inventory */}
                         <Route path="/inventory" element={<Inventory />} />
+                        <Route path="/inventory/new-stock" element={<NewStock />} />
                         
                         {/* Reports */}
                         <Route path="/reports" element={<Reports />} />

@@ -48,9 +48,12 @@ const menuItems = [
   { text: 'Customers', icon: <PeopleIcon />, path: '/customers' },
   { text: 'Orders', icon: <ShoppingCartIcon />, path: '/orders' },
   { text: 'Inventory', icon: <InventoryIcon />, path: '/inventory' },
+  { text: 'Vendors', icon: <StoreIcon />, path: '/vendors' },
+
   { text: 'Reports', icon: <AssessmentIcon />, path: '/reports' },
   { text: 'Settings', icon: <SettingsIcon />, path: '/settings' },
 ];
+
 
 const Layout: React.FC<LayoutProps> = ({ children }) => {
   const theme = useTheme();

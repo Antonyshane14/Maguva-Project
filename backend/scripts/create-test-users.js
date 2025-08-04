@@ -4,7 +4,7 @@ const User = require('../models/User');
 
 console.log('Script starting...');
 
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/boutique_management';
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/maguva_boutique';
 
 const testUsers = [
   {

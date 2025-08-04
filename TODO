@@ -1,0 +1,8 @@
+TODO remove resgistration (breach of security)
+
+TODOworking on:
+Vendor:
+this site is only for role admin , 
+u need 2 scripts, one is to register vendor  and other is to view list of vendor
+backend should have add, get(specific) ,get(all), edit , delete all in one script
+also add a collection for vendors
